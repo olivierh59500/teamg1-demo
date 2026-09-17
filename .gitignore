@@ -1,4 +1,5 @@
 # Binaries for programs and plugins
+/teamg1-demo
 *.exe
 *.exe~
 *.dll
@@ -17,3 +18,15 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Android generated files
+android/.gradle/
+android/build/
+android/app/build/
+android/app/libs/*.aar
+android/app/libs/*-sources.jar
+android/local.properties

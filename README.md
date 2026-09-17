@@ -1,55 +1,71 @@
 # TEAMG1 Demo
 
-A modern tribute to the golden age of demoscene, created with Go and Ebiten by Bilizir from DMA.
+Hommage moderne à la demoscene, écrit en Go avec Ebitengine par Bilizir de DMA.
 
-## Overview
+La démo combine un shader CRT, un plasma temps réel, un cube 3D texturé, des
+logos déformés, un scroller sinusoïdal et une musique YM2149.
 
-This demo combines classic demoscene effects from the late 80s/early 90s with modern twists:
+## Prérequis
 
-- **CRT Shader Intro**: Enhanced CRT effect with phosphor glow, scanlines, and barrel distortion
-- **Plasma Background**: Real-time generated plasma effect using multiple sine waves
-- **3D Textured Cube**: Fully textured rotating cube with proper backface culling
-- **Logo Deformation**: TEAMG1 logo with sinusoidal distortion
-- **Spiral Logos**: Multiple GAMEONE logos rotating in a spiral pattern
-- **Wave Scroller**: Classic scrolling text with wave distortion
-- **YM Chiptune Music**: Authentic Atari ST sound using YM2149 emulation
+- Go 1.25 ou plus récent ;
+- pour Android : JDK 17, SDK Android 36, Build Tools 36 et NDK 28.2.13676358.
 
-## Features
+Les versions applicatives sont verrouillées dans `go.mod` : Ebitengine 2.9.11
+et `ym-player` à la révision validée du 13 septembre 2026. L’audio est synthétisé
+et joué à 48 kHz.
 
-### Visual Effects
-- Enhanced CRT shader with multiple effects (scanlines, RGB shift, vignette, flicker)
-- Real-time plasma field generation
-- 3D textured cube with perspective-correct rendering
-- Logo deformation and animation
-- Multiple scrolling text layers with different effects
-- Smooth transitions between scenes
+## Version ordinateur
 
-### Technical Features
-- Optimized for cross-platform performance (Windows, macOS, Linux)
-- Support for both Intel and ARM architectures
-- Pre-rendered frames for smooth animations
-- Efficient memory usage with canvas reuse
-- Hardware-accelerated rendering via Ebiten
+```sh
+go run ./cmd/teamg1demo
+```
 
-### Audio
-- YM2149 sound chip emulation for authentic chiptune music
-- Looped playback with volume control
-- Perfect synchronization with visual effects
+Pour construire un exécutable :
 
-### Build Instructions
+```sh
+go build -o teamg1-demo ./cmd/teamg1demo
+```
 
-```bash
-# Clone the repository
-git clone https://github.com/olivierh59500/teamg1-demo
-cd teamg1-demo
+La touche `F` active ou désactive le plein écran.
 
-# Get dependencies
-go mod init teamg1-demo
-go get github.com/hajimehoshi/ebiten/v2
-go get github.com/olivierh59500/ym-player/pkg/stsound
+## Tests
 
-# Build
-go build -o teamg1-demo main.go
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+golangci-lint run ./...
+```
 
-# Run
-./teamg1-demo
+Les tests couvrent notamment le PCM stéréo, l’absence d’allocation dans la
+lecture YM, le rendu du plasma, le layout large et la garde de rendu desktop.
+
+## Version Android
+
+Avec un unique appareil Android ARM64 connecté, déverrouillé et autorisé :
+
+```sh
+./scripts/run-android.sh
+```
+
+Le script génère l’AAR avec la même version d’Ebitengine que `go.mod`, compile
+l’APK, l’installe puis lance `com.olivierh.teamg1demo/.MainActivity`.
+
+Pour construire sans installer :
+
+```sh
+mkdir -p android/app/libs
+go run github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.11 \
+  bind \
+  -target android/arm64 \
+  -androidapi 23 \
+  -javapkg com.olivierh.teamg1demo \
+  -o android/app/libs/teamg1demo.aar \
+  ./mobile
+
+./android/gradlew -p android --console=plain clean assembleDebug
+./android/gradlew -p android --console=plain lintDebug
+```
+
+L’APK de débogage est produit dans
+`android/app/build/outputs/apk/debug/app-debug.apk`.
