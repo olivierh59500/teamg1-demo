@@ -1,10 +1,14 @@
 // Package teamg1demo implements the TEAMG1 demoscene tribute.
 package teamg1demo
 
+import originalassets "teamg1-demo"
+
 import (
 	"bytes"
-	_ "embed"
+
 	"fmt"
+	"github.com/olivierh59500/democonstructionkit/composite"
+	"github.com/olivierh59500/democonstructionkit/scrolling"
 	"image"
 	"image/color"
 	_ "image/png"
@@ -43,19 +47,20 @@ const (
 
 // Embedded assets
 var (
-	//go:embed assets/font.png
-	fontData []byte
-	//go:embed assets/teamg1_logo.png
-	teamG1LogoData []byte
-	//go:embed assets/gameone_logo.png
-	gameOneLogoData []byte
-	//go:embed assets/texture.png
-	textureData []byte
-	//go:embed assets/music.ym
-	musicData []byte
+	fontData = originalassets.DCKAssetFontData()
+
+	teamG1LogoData = originalassets.DCKAssetTeamG1LogoData()
+
+	gameOneLogoData = originalassets.DCKAssetGameOneLogoData()
+
+	textureData = originalassets.DCKAssetTextureData()
+
+	musicData = originalassets.
+
+		// Letter represents a character in the bitmap font
+		DCKAssetMusicData()
 )
 
-// Letter represents a character in the bitmap font
 type Letter struct {
 	width int
 	image *ebiten.Image
@@ -245,6 +250,8 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 
 // Game represents the main demo state
 type Game struct {
+	scrollRenderer *scrolling.Scrolling
+	stripBatch     *composite.QuadBatch
 	// Images
 	fontImg     *ebiten.Image
 	teamG1Logo  *ebiten.Image
@@ -953,7 +960,7 @@ func (g *Game) drawLogoSpiral() {
 		op.GeoM.Scale(scale, scale)
 		op.GeoM.Translate(x+float64(g.logoCanvas.Bounds().Dx())/2, y+float64(g.logoCanvas.Bounds().Dy())/2)
 
-		g.logoCanvas.DrawImage(g.gameOneLogo, &op)
+		composite.Instance{Image: g.gameOneLogo, Options: op}.Draw(g.logoCanvas)
 	}
 }
 
@@ -1004,67 +1011,42 @@ func (g *Game) drawDistortedLogo() {
 // drawScrollText draws the scrolling text TCB-Replicants style
 func (g *Game) drawScrollText() {
 	g.scrollCanvas.Clear()
-
 	canvasWidth := g.scrollCanvas.Bounds().Dx()
-	startX := float64(canvasWidth) - g.scrollX
-	xPos := startX
-	maxX := float64(canvasWidth + 200)
-
-	for _, glyph := range g.scrollGlyphs {
-		if xPos >= maxX {
-			break
+	if g.scrollRenderer == nil {
+		glyphs := make([]scrolling.Glyph, len(g.scrollGlyphs))
+		for i, gl := range g.scrollGlyphs {
+			glyphs[i] = scrolling.Glyph{Image: gl.image, Advance: gl.width, ScaleX: demoFontScale, ScaleY: demoFontScale}
 		}
-		if glyph.image != nil && xPos+glyph.width > -200 {
-			var op ebiten.DrawImageOptions
-			op.GeoM.Scale(demoFontScale, demoFontScale)
-			op.GeoM.Translate(xPos, 0)
-			g.scrollCanvas.DrawImage(glyph.image, &op)
+		var err error
+		g.scrollRenderer, err = scrolling.New(scrolling.Config{Glyphs: glyphs})
+		if err != nil {
+			panic(err)
 		}
-		xPos += glyph.width
+		g.stripBatch = composite.NewQuadBatch(int(fontHeight*demoFontScale) / 2)
+		g.stripBatch.AlternateDiagonal = true
 	}
-
+	state := scrolling.IdentityState()
+	state.X = float64(canvasWidth) - g.scrollX
+	state.Map = func(s scrolling.Sample, op *ebiten.DrawImageOptions) bool {
+		return s.X < float64(canvasWidth+200) && s.X+s.Glyph.Advance > -200
+	}
+	g.scrollRenderer.DrawAt(g.scrollCanvas, state)
 	baseY := float64(g.stCanvas.Bounds().Dy()) - 100
-	scrollHeight := int(fontHeight * demoFontScale)
 	waveIndex := int(g.scrollOffset)
-	g.scrollVertices = g.scrollVertices[:0]
-	g.scrollIndices = g.scrollIndices[:0]
-
-	for y := 0; y < scrollHeight/2; y++ {
-		idx := (waveIndex + y) % len(g.scrollWave)
-		offsetX := g.scrollWave[idx]
-		srcMinX := int(offsetX) + 64 + (canvasWidth-g.stCanvas.Bounds().Dx())/2
-		srcMaxX := srcMinX + g.stCanvas.Bounds().Dx()
-		if srcMinX < 0 {
-			srcMinX = 0
-		}
-		if srcMaxX > canvasWidth {
-			srcMaxX = canvasWidth
-		}
-		if srcMinX >= srcMaxX {
+	g.stripBatch.Options = g.scrollTrianglesOpt
+	g.stripBatch.Begin(g.stCanvas, g.scrollCanvas)
+	for y := 0; y < int(fontHeight*demoFontScale)/2; y++ {
+		offsetX := g.scrollWave[(waveIndex+y)%len(g.scrollWave)]
+		x0 := int(offsetX) + 64 + (canvasWidth-g.stCanvas.Bounds().Dx())/2
+		x1 := x0 + g.stCanvas.Bounds().Dx()
+		x0 = max(0, x0)
+		x1 = min(canvasWidth, x1)
+		if x0 >= x1 {
 			continue
 		}
-
-		base := uint16(len(g.scrollVertices))
-		dstY := float32(baseY + float64(y*2))
-		dstWidth := float32(srcMaxX - srcMinX)
-		srcY := float32(y * 2)
-		g.scrollVertices = append(g.scrollVertices,
-			ebiten.Vertex{DstX: 0, DstY: dstY, SrcX: float32(srcMinX), SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-			ebiten.Vertex{DstX: dstWidth, DstY: dstY, SrcX: float32(srcMaxX), SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-			ebiten.Vertex{DstX: 0, DstY: dstY + 2, SrcX: float32(srcMinX), SrcY: srcY + 2, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-			ebiten.Vertex{DstX: dstWidth, DstY: dstY + 2, SrcX: float32(srcMaxX), SrcY: srcY + 2, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		)
-		g.scrollIndices = append(g.scrollIndices, base, base+1, base+2, base+1, base+3, base+2)
+		g.stripBatch.Rect(image.Rect(x0, y*2, x1, y*2+2), 0, float32(baseY+float64(y*2)), float32(x1-x0), 2)
 	}
-
-	if len(g.scrollIndices) > 0 {
-		g.stCanvas.DrawTriangles(
-			g.scrollVertices,
-			g.scrollIndices,
-			g.scrollCanvas,
-			&g.scrollTrianglesOpt,
-		)
-	}
+	g.stripBatch.Flush()
 }
 
 // drawMainDemo draws the main demo scene

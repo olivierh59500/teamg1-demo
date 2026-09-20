@@ -69,3 +69,9 @@ go run github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.11 \
 
 L’APK de débogage est produit dans
 `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+## Optional DCK version
+
+The original implementation remains at its original paths. Run it with `go run ./cmd/teamg1demo`.
+
+The construction-kit version is in [dck/](dck/README.md). Run `go run ./dck/cmd/teamg1demo` from this directory. Both versions share the original assets.
