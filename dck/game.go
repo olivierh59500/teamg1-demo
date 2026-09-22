@@ -8,6 +8,7 @@ import (
 
 	"fmt"
 	"github.com/olivierh59500/democonstructionkit/composite"
+	"github.com/olivierh59500/democonstructionkit/plasma"
 	"github.com/olivierh59500/democonstructionkit/scrolling"
 	"image"
 	"image/color"
@@ -79,22 +80,12 @@ type Face struct {
 
 // PlasmaField represents the plasma effect background
 type PlasmaField struct {
-	time        float64
-	width       int
-	height      int
-	buffer      *ebiten.Image
-	pixels      []byte
-	xSin        []float64
-	xCos        []float64
-	ySin        []float64
-	yCos        []float64
-	radialSin   []float64
-	radialCos   []float64
-	diagonalSin []float64
-	diagonalCos []float64
-	xWave       []float64
-	yWave       []float64
-	dirty       bool
+	time          float64
+	width, height int
+	buffer        *ebiten.Image
+	pixels        []byte
+	kernel        *plasma.Harmonic
+	dirty         bool
 }
 
 // LogoDistortion handles the logo distortion effect
@@ -567,43 +558,11 @@ func newPlasmaField(buffer *ebiten.Image) *PlasmaField {
 }
 
 func newPlasmaFieldForSize(width, height int) *PlasmaField {
-	pixelCount := width * height
-	diagonalCount := width + height - 1
-	p := &PlasmaField{
-		width:       width,
-		height:      height,
-		pixels:      make([]byte, pixelCount*4),
-		xSin:        make([]float64, width),
-		xCos:        make([]float64, width),
-		ySin:        make([]float64, height),
-		yCos:        make([]float64, height),
-		radialSin:   make([]float64, pixelCount),
-		radialCos:   make([]float64, pixelCount),
-		diagonalSin: make([]float64, diagonalCount),
-		diagonalCos: make([]float64, diagonalCount),
-		xWave:       make([]float64, width),
-		yWave:       make([]float64, height),
-		dirty:       true,
+	kernel, err := plasma.NewHarmonic(plasma.DefaultHarmonicConfig(width, height))
+	if err != nil {
+		panic(err)
 	}
-
-	for x := range width {
-		p.xSin[x], p.xCos[x] = math.Sincos(float64(x) * 0.02)
-	}
-	for y := range height {
-		p.ySin[y], p.yCos[y] = math.Sincos(float64(y) * 0.03)
-	}
-	for diagonal := range diagonalCount {
-		p.diagonalSin[diagonal], p.diagonalCos[diagonal] = math.Sincos(float64(diagonal) * 0.01)
-	}
-	for y := range height {
-		row := y * width
-		for x := range width {
-			phase := math.Sqrt(float64(x*x+y*y)) * 0.01
-			p.radialSin[row+x], p.radialCos[row+x] = math.Sincos(phase)
-		}
-	}
-
-	return p
+	return &PlasmaField{width: width, height: height, pixels: make([]byte, width*height*4), kernel: kernel, dirty: true}
 }
 
 func (p *PlasmaField) advance() {
@@ -611,46 +570,9 @@ func (p *PlasmaField) advance() {
 	p.dirty = true
 }
 
-func plasmaColor(value float64) byte {
-	value = (value + 1) * 127
-	if value <= 0 {
-		return 0
-	}
-	if value >= 254 {
-		return 254
-	}
-	return byte(value)
-}
-
 func (p *PlasmaField) updatePixels() {
-	sinTime, cosTime := math.Sincos(p.time)
-	sinTime15, cosTime15 := math.Sincos(p.time * 1.5)
-	sinTime05, cosTime05 := math.Sincos(p.time * 0.5)
-	sinTime2, cosTime2 := math.Sincos(p.time * 2)
-
-	for x := range p.width {
-		p.xWave[x] = p.xSin[x]*cosTime + p.xCos[x]*sinTime
-	}
-	for y := range p.height {
-		p.yWave[y] = p.ySin[y]*cosTime15 + p.yCos[y]*sinTime15
-	}
-
-	const sinTwoPiThird = 0.8660254037844386
-	for y := range p.height {
-		row := y * p.width
-		for x := range p.width {
-			index := row + x
-			radial := p.radialSin[index]*cosTime05 + p.radialCos[index]*sinTime05
-			diagonal := p.diagonalSin[x+y]*cosTime2 + p.diagonalCos[x+y]*sinTime2
-			value := (p.xWave[x] + p.yWave[y] + radial + diagonal) / 4
-			sinColor, cosColor := math.Sincos(value * math.Pi)
-
-			pixel := index * 4
-			p.pixels[pixel] = plasmaColor(sinColor)
-			p.pixels[pixel+1] = plasmaColor(-0.5*sinColor + sinTwoPiThird*cosColor)
-			p.pixels[pixel+2] = plasmaColor(-0.5*sinColor - sinTwoPiThird*cosColor)
-			p.pixels[pixel+3] = 0xff
-		}
+	if err := p.kernel.RenderRGBA(p.pixels, p.width*4, p.time); err != nil {
+		panic(err)
 	}
 }
 
