@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"math"
 	"testing"
+
+	"github.com/olivierh59500/democonstructionkit/sound"
 )
 
-func TestYMPlayerReadProducesStereoWithoutAllocating(t *testing.T) {
-	player, err := NewYMPlayer(musicData, sampleRate, true)
+func TestMusicStreamReadProducesStereoWithoutAllocating(t *testing.T) {
+	player, err := sound.Open("music.ym", musicData, sound.Options{SampleRate: sampleRate, Loop: true, PCMFormat: sound.PCM16, Gain: 0.5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,8 +111,8 @@ func BenchmarkPlasmaUpdatePixels(b *testing.B) {
 	}
 }
 
-func BenchmarkYMPlayerRead4096(b *testing.B) {
-	player, err := NewYMPlayer(musicData, sampleRate, true)
+func BenchmarkMusicStreamRead4096(b *testing.B) {
+	player, err := sound.Open("music.ym", musicData, sound.Options{SampleRate: sampleRate, Loop: true, PCMFormat: sound.PCM16, Gain: 0.5})
 	if err != nil {
 		b.Fatal(err)
 	}

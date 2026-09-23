@@ -1,27 +1,25 @@
 // Package teamg1demo implements the TEAMG1 demoscene tribute.
 package teamg1demo
 
-import originalassets "teamg1-demo"
-
 import (
 	"bytes"
+	"image"
+	"image/color"
+	originalassets "teamg1-demo"
 
-	"fmt"
 	"github.com/olivierh59500/democonstructionkit/composite"
 	"github.com/olivierh59500/democonstructionkit/plasma"
 	"github.com/olivierh59500/democonstructionkit/scrolling"
-	"image"
-	"image/color"
+	"github.com/olivierh59500/democonstructionkit/sound"
+
 	_ "image/png"
-	"io"
 	"log"
 	"math"
-	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
 	audio "github.com/olivierh59500/democonstructionkit/sound/output"
-	"github.com/olivierh59500/ym-player/pkg/stsound"
 )
 
 const (
@@ -102,84 +100,6 @@ type faceDepth struct {
 type scrollGlyph struct {
 	image *ebiten.Image
 	width float64
-}
-
-// YMPlayer wraps the YM player for Ebiten audio
-type YMPlayer struct {
-	player *stsound.StSound
-	buffer []int16
-	mutex  sync.Mutex
-	loop   bool
-}
-
-// NewYMPlayer creates a new YM player instance
-func NewYMPlayer(data []byte, sampleRate int, loop bool) (*YMPlayer, error) {
-	player := stsound.CreateWithRate(sampleRate)
-
-	if err := player.LoadMemory(data); err != nil {
-		player.Destroy()
-		return nil, fmt.Errorf("failed to load YM data: %w", err)
-	}
-
-	player.SetLoopMode(loop)
-
-	return &YMPlayer{
-		player: player,
-		buffer: make([]int16, 4096),
-		loop:   loop,
-	}, nil
-}
-
-// Read implements io.Reader for audio streaming
-func (y *YMPlayer) Read(p []byte) (n int, err error) {
-	y.mutex.Lock()
-	defer y.mutex.Unlock()
-
-	if y.player == nil {
-		return 0, io.EOF
-	}
-
-	samplesNeeded := len(p) / 4
-	processed := 0
-	for processed < samplesNeeded {
-		chunkSize := samplesNeeded - processed
-		if chunkSize > len(y.buffer) {
-			chunkSize = len(y.buffer)
-		}
-
-		if !y.player.Compute(y.buffer[:chunkSize], chunkSize) {
-			if !y.loop {
-				clear(p[processed*4 : samplesNeeded*4])
-				err = io.EOF
-				break
-			}
-		}
-
-		for i := 0; i < chunkSize; i++ {
-			sample := y.buffer[i] / 2
-			offset := (processed + i) * 4
-			p[offset] = byte(sample)
-			p[offset+1] = byte(sample >> 8)
-			p[offset+2] = byte(sample)
-			p[offset+3] = byte(sample >> 8)
-		}
-
-		processed += chunkSize
-	}
-
-	return samplesNeeded * 4, err
-}
-
-// Close releases resources
-func (y *YMPlayer) Close() error {
-	y.mutex.Lock()
-	defer y.mutex.Unlock()
-
-	if y.player != nil {
-		y.player.Destroy()
-		y.player = nil
-	}
-	return nil
 }
 
 // CRT shader with enhanced effects - FIXED with time uniform
@@ -295,7 +215,7 @@ type Game struct {
 	// Audio
 	audioContext *audio.Context
 	audioPlayer  *audio.Player
-	ymPlayer     *YMPlayer
+	musicStream  *sound.Stream
 	audioReady   bool
 	musicStarted bool
 
@@ -679,24 +599,24 @@ func (g *Game) loadImages() {
 	}
 }
 
-// initAudio initializes the audio system with YM music
+// initAudio opens the soundtrack and starts audio output.
 func (g *Game) initAudio() {
 	g.audioContext = audio.NewContext(sampleRate)
 
-	ymPlayer, err := NewYMPlayer(musicData, sampleRate, true)
+	musicStream, err := sound.Open("music.ym", musicData, sound.Options{SampleRate: sampleRate, Loop: true, PCMFormat: sound.PCM16, Gain: 0.5})
 	if err != nil {
-		log.Printf("Failed to create YM player: %v", err)
+		log.Printf("Failed to open music: %v", err)
 		return
 	}
-	g.ymPlayer = ymPlayer
+	g.musicStream = musicStream
 
-	audioPlayer, err := g.audioContext.NewPlayer(ymPlayer)
+	audioPlayer, err := g.audioContext.NewPlayer(musicStream)
 	if err != nil {
 		log.Printf("Failed to create audio player: %v", err)
-		if closeErr := ymPlayer.Close(); closeErr != nil {
-			log.Printf("Failed to close YM player: %v", closeErr)
+		if closeErr := musicStream.Close(); closeErr != nil {
+			log.Printf("Failed to close music stream: %v", closeErr)
 		}
-		g.ymPlayer = nil
+		g.musicStream = nil
 		return
 	}
 	g.audioPlayer = audioPlayer
@@ -1119,11 +1039,11 @@ func (g *Game) Cleanup() {
 		}
 		g.audioPlayer = nil
 	}
-	if g.ymPlayer != nil {
-		if err := g.ymPlayer.Close(); err != nil {
-			log.Printf("Failed to close YM player: %v", err)
+	if g.musicStream != nil {
+		if err := g.musicStream.Close(); err != nil {
+			log.Printf("Failed to close music stream: %v", err)
 		}
-		g.ymPlayer = nil
+		g.musicStream = nil
 	}
 	if g.crtShader != nil {
 		g.crtShader.Deallocate()
