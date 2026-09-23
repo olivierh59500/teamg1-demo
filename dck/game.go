@@ -8,6 +8,7 @@ import (
 	"image/color"
 	originalassets "teamg1-demo"
 
+	kit "github.com/olivierh59500/democonstructionkit"
 	"github.com/olivierh59500/democonstructionkit/composite"
 	"github.com/olivierh59500/democonstructionkit/effects"
 	"github.com/olivierh59500/democonstructionkit/plasma"
@@ -179,7 +180,6 @@ type Game struct {
 	scrollTrianglesOpt ebiten.DrawTrianglesOptions
 
 	// Intro scrolling
-	introTextRunes []rune
 
 	// Animation state
 	fadeImg       float64
@@ -201,12 +201,8 @@ type Game struct {
 	fontAtlas       *scrolling.Atlas
 	teamG1LogoLines []*ebiten.Image
 
-	// Intro state
-	introX          int
-	introLetter     int
-	surfScroll1     *ebiten.Image
-	surfScroll2     *ebiten.Image
-	introShiftImage *ebiten.Image
+	// Finite intro text transport.
+	introScroll *scrolling.Scrolling
 
 	// Draw options (optimization)
 	drawOp     ebiten.DrawImageOptions
@@ -217,8 +213,6 @@ type Game struct {
 func NewGame() *Game {
 	g := &Game{
 		fadeImg:        2.0,
-		introX:         -1,
-		introLetter:    -1,
 		crtUniforms:    map[string]any{"Time": float32(0)},
 		scrollVertices: make([]ebiten.Vertex, 0, int(fontHeight*demoFontScale/2)*4),
 		scrollIndices:  make([]uint16, 0, int(fontHeight*demoFontScale/2)*6),
@@ -229,7 +223,6 @@ func NewGame() *Game {
 	introScrollText := spc +
 		"C'EST MERCREDI..." + spc +
 		"JE REPETE, C'EST MERCREDI ET LE MERCREDI..." + spc
-	g.introTextRunes = []rune(introScrollText)
 
 	// Main demo text
 	scrollText := spc + spc +
@@ -246,16 +239,14 @@ func NewGame() *Game {
 	g.scrollCanvas = ebiten.NewImage(stCanvasWidth+512, int(fontHeight*demoFontScale))
 	g.logoCanvas = ebiten.NewImage(stCanvasWidth, stCanvasHeight)
 
-	// For intro, ensure all canvases have consistent sizes
-	introScrollHeight := int(fontHeight * introFontScale)
-	g.surfScroll1 = ebiten.NewImage(screenWidth, introScrollHeight)
-	g.surfScroll2 = ebiten.NewImage(screenWidth, introScrollHeight)
-	g.introShiftImage = g.surfScroll1.SubImage(
-		image.Rect(6, 0, screenWidth, introScrollHeight),
-	).(*ebiten.Image)
-
 	// Initialize font data
 	g.initFontData()
+	introConfig := presets.TeamG1IntroFeed(g.fontAtlas, introScrollText)
+	intro, err := scrolling.New(scrolling.Config{Feed: &introConfig})
+	if err != nil {
+		panic(err)
+	}
+	g.introScroll = intro
 	g.initScrollText([]rune(scrollText))
 	g.initScrollWave()
 	g.cacheLogoLines()
@@ -273,7 +264,6 @@ func NewGame() *Game {
 	g.initLogoDistortion()
 
 	// Compile CRT shader
-	var err error
 	g.crtShader, err = ebiten.NewShader([]byte(crtShaderSrc))
 	if err != nil {
 		log.Printf("Failed to compile CRT shader: %v", err)
@@ -517,62 +507,6 @@ func (g *Game) startMusic() {
 	g.musicStarted = true
 }
 
-// animIntro handles intro animation
-func (g *Game) animIntro() {
-	if g.introX < 0 {
-		if g.introLetter >= 0 {
-			char := g.getIntroLetter(g.introLetter)
-			if _, letter, ok := g.fontAtlas.ExactGlyph(char); ok {
-				g.introX += int(float64(int(letter.Advance)) * introFontScale)
-			}
-		}
-		g.introLetter++
-		if g.introLetter >= len(g.introTextRunes) {
-			g.introComplete = true
-			g.fadeImg = 0
-			return
-		}
-	}
-	g.introX -= 6 // Faster speed
-
-	// Scroll temporary canvas - IMPORTANT: clear first to avoid trails
-	g.surfScroll2.Clear()
-	g.drawOp.GeoM.Reset()
-	g.drawOp.ColorScale.Reset()
-	g.surfScroll2.DrawImage(g.introShiftImage, &g.drawOp)
-
-	// IMPORTANT: Clear surfScroll1 before drawing to avoid trails
-	g.surfScroll1.Clear()
-	g.surfScroll1.DrawImage(g.surfScroll2, &g.drawOp)
-
-	// Draw new letter
-	char := g.getIntroLetter(g.introLetter)
-	if glyphImage, _, ok := g.fontAtlas.ExactGlyph(char); ok {
-		g.drawOp.GeoM.Reset()
-		g.drawOp.ColorScale.Reset() // Reset color scale
-		g.drawOp.GeoM.Scale(introFontScale, introFontScale)
-		g.drawOp.GeoM.Translate(float64(stCanvasWidth+g.introX), 0)
-		g.surfScroll1.DrawImage(glyphImage, &g.drawOp)
-	}
-
-	g.shaderTime += 0.016
-}
-
-// getIntroLetter gets intro letter at position
-func (g *Game) getIntroLetter(pos int) rune {
-	if len(g.introTextRunes) == 0 {
-		return ' '
-	}
-	char := g.introTextRunes[pos%len(g.introTextRunes)]
-
-	// Convert lowercase to uppercase since the font only has uppercase
-	if char >= 'a' && char <= 'z' {
-		char = char - 'a' + 'A'
-	}
-
-	return char
-}
-
 // drawTexturedCube draws the 3D textured cube
 func (g *Game) drawTexturedCube() {
 	g.cubeCanvas.Clear()
@@ -752,7 +686,15 @@ func (g *Game) Update() error {
 	}
 
 	if !g.introComplete {
-		g.animIntro()
+		if err := g.introScroll.Update(kit.Frame{}); err != nil {
+			return err
+		}
+		if g.introScroll.Finished() {
+			g.introComplete = true
+			g.fadeImg = 0
+		} else {
+			g.shaderTime += .016
+		}
 	} else {
 		// Fade in main scene
 		if g.fadeImg < 1 {
@@ -782,7 +724,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		yPos := screenHeight/2 - int(fontHeight*introFontScale)/2
 
 		if g.crtShader != nil {
-			g.drawRectOp.Images[0] = g.surfScroll1
+			g.drawRectOp.Images[0] = g.introScroll.Image()
 			g.drawRectOp.GeoM.Reset()
 			g.drawRectOp.GeoM.Translate(float64(offsetX), float64(yPos))
 			g.crtUniforms["Time"] = float32(g.shaderTime)
@@ -794,7 +736,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.drawOp.GeoM.Reset()
 			g.drawOp.ColorScale.Reset()
 			g.drawOp.GeoM.Translate(float64(offsetX), float64(yPos))
-			screen.DrawImage(g.surfScroll1, &g.drawOp)
+			screen.DrawImage(g.introScroll.Image(), &g.drawOp)
 		}
 		return
 	}
@@ -831,6 +773,9 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 
 // Cleanup releases resources
 func (g *Game) Cleanup() {
+	if g.introScroll != nil {
+		g.introScroll.Close()
+	}
 	if g.cube != nil {
 		g.cube.Close()
 	}
