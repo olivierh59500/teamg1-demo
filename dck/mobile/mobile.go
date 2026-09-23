@@ -8,7 +8,10 @@ import (
 )
 
 func init() {
-	enginemobile.SetGame(teamg1demo.NewGame())
+	enginemobile.SetGame(teamg1demo.NewGameWithOptions(teamg1demo.GameOptions{
+		PlasmaColorLookupSize: 16384,
+		BatchLogoRows:         true,
+	}))
 }
 
 // Dummy forces gomobile to include this package in the Android binding.

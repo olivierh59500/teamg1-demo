@@ -114,6 +114,26 @@ type Game struct {
 
 // NewGame creates and initializes a new game instance
 func NewGame() *Game {
+	return NewGameWithOptions(GameOptions{})
+}
+
+// GameOptions selects independently reusable rendering policies. The zero
+// value preserves the exact desktop reference.
+type GameOptions struct {
+	PlasmaColorLookupSize int
+	BatchLogoRows         bool
+}
+
+// NewGameWithPlasmaColorLookup selects the optional bounded plasma color table.
+// Zero keeps exact desktop coloring; 16384 changes each source-plasma color
+// channel by at most one level before composition while avoiding per-pixel
+// trigonometry on mobile CPUs.
+func NewGameWithPlasmaColorLookup(samples int) *Game {
+	return NewGameWithOptions(GameOptions{PlasmaColorLookupSize: samples})
+}
+
+// NewGameWithOptions constructs the same scene with selected effect backends.
+func NewGameWithOptions(options GameOptions) *Game {
 	g := &Game{
 		fadeImg: 2.0,
 	}
@@ -169,14 +189,17 @@ func NewGame() *Game {
 	}
 
 	// The effect owns its pixels, live GPU surface and dirty-frame upload.
-	g.plasmaField, err = plasma.NewHarmonicImage(
-		plasma.DefaultHarmonicConfig(stCanvasWidth/2, stCanvasHeight/2), plasmaSpeed)
+	plasmaConfig := plasma.DefaultHarmonicConfig(stCanvasWidth/2, stCanvasHeight/2)
+	plasmaConfig.ColorLookupSize = options.PlasmaColorLookupSize
+	g.plasmaField, err = plasma.NewHarmonicImage(plasmaConfig, plasmaSpeed)
 	if err != nil {
 		panic(err)
 	}
 
 	// Configure the complete, reusable row-profile logo effect.
-	g.logoWave, err = composite.NewProfileImage(g.teamG1Logo, presets.TeamG1LogoProfile(float64(stCanvasWidth)))
+	logoProfile := presets.TeamG1LogoProfile(float64(stCanvasWidth))
+	logoProfile.Batch = options.BatchLogoRows
+	g.logoWave, err = composite.NewProfileImage(g.teamG1Logo, logoProfile)
 	if err != nil {
 		panic(err)
 	}
