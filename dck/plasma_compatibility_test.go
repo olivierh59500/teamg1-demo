@@ -4,7 +4,31 @@ import (
 	"bytes"
 	"math"
 	"testing"
+
+	"github.com/olivierh59500/democonstructionkit/plasma"
 )
+
+// This test fixture drives the shared pure kernel independently of the GPU effect.
+type sharedPlasmaField struct {
+	time          float64
+	width, height int
+	pixels        []byte
+	kernel        *plasma.Harmonic
+}
+
+func newPlasmaFieldForSize(width, height int) *sharedPlasmaField {
+	kernel, err := plasma.NewHarmonic(plasma.DefaultHarmonicConfig(width, height))
+	if err != nil {
+		panic(err)
+	}
+	return &sharedPlasmaField{width: width, height: height, pixels: make([]byte, width*height*4), kernel: kernel}
+}
+func (p *sharedPlasmaField) advance() { p.time += plasmaSpeed }
+func (p *sharedPlasmaField) updatePixels() {
+	if err := p.kernel.RenderRGBA(p.pixels, p.width*4, p.time); err != nil {
+		panic(err)
+	}
+}
 
 // This retained renderer is the pre-extraction implementation. It validates
 // actual output, including channel rounding, against the shared kernel.
