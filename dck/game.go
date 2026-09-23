@@ -3,11 +3,13 @@ package teamg1demo
 
 import (
 	"bytes"
+	"github.com/olivierh59500/democonstructionkit/presets"
 	"image"
 	"image/color"
 	originalassets "teamg1-demo"
 
 	"github.com/olivierh59500/democonstructionkit/composite"
+	"github.com/olivierh59500/democonstructionkit/effects"
 	"github.com/olivierh59500/democonstructionkit/plasma"
 	"github.com/olivierh59500/democonstructionkit/scrolling"
 	"github.com/olivierh59500/democonstructionkit/sound"
@@ -60,22 +62,6 @@ var (
 		DCKAssetMusicData()
 )
 
-type Letter struct {
-	width int
-	image *ebiten.Image
-}
-
-// Vector3 represents a 3D point in space
-type Vector3 struct {
-	X, Y, Z float64
-}
-
-// Face represents a textured quad face
-type Face struct {
-	P1, P2, P3, P4     int
-	UV1, UV2, UV3, UV4 [2]float32 // Texture coordinates
-}
-
 // PlasmaField represents the plasma effect background
 type PlasmaField struct {
 	time          float64
@@ -90,11 +76,6 @@ type PlasmaField struct {
 type LogoDistortion struct {
 	distSin   []float64
 	distCount int
-}
-
-type faceDepth struct {
-	faceIndex int
-	depth     float64
 }
 
 type scrollGlyph struct {
@@ -180,15 +161,8 @@ type Game struct {
 	plasmaField *PlasmaField
 	logoDistort *LogoDistortion
 
-	// 3D Textured cube
-	cubeVertices        [8]Vector3
-	cubeFaces           [6]Face
-	transformedVertices [8]Vector3
-	faceDepths          [6]faceDepth
-	cubeDrawVertices    [4]ebiten.Vertex
-	cubeDrawIndices     [6]uint16
-	cubeTrianglesOpt    ebiten.DrawTrianglesOptions
-	cubeRotation        Vector3
+	// Shared live-texture cube.
+	cube *effects.TexturedCube
 
 	// Logo spiral
 	logoPhases [logoCount]float64
@@ -224,7 +198,7 @@ type Game struct {
 	crtUniforms map[string]any
 
 	// Font data
-	letterData      map[rune]Letter
+	fontAtlas       *scrolling.Atlas
 	teamG1LogoLines []*ebiten.Image
 
 	// Intro state
@@ -243,7 +217,6 @@ type Game struct {
 func NewGame() *Game {
 	g := &Game{
 		fadeImg:        2.0,
-		letterData:     make(map[rune]Letter, 48),
 		introX:         -1,
 		introLetter:    -1,
 		crtUniforms:    map[string]any{"Time": float32(0)},
@@ -343,79 +316,17 @@ func (g *Game) initLogoDistortion() {
 
 // initFontData initializes the bitmap font character data
 func (g *Game) initFontData() {
-	data := []struct {
-		char  rune
-		x, y  int
-		width int
-	}{
-		{' ', 0, 0, 32},
-		{'!', 48, 0, 16},
-		{'"', 96, 0, 32},
-		{'\'', 336, 0, 16},
-		{'(', 384, 0, 32},
-		{')', 432, 0, 32},
-		{'+', 48, 36, 48},
-		{',', 96, 36, 16},
-		{'-', 144, 36, 32},
-		{'.', 192, 36, 16},
-		{'0', 288, 36, 48},
-		{'1', 336, 36, 48},
-		{'2', 384, 36, 48},
-		{'3', 432, 36, 48},
-		{'4', 0, 72, 48},
-		{'5', 48, 72, 48},
-		{'6', 96, 72, 48},
-		{'7', 144, 72, 48},
-		{'8', 192, 72, 48},
-		{'9', 240, 72, 48},
-		{':', 288, 72, 16},
-		{';', 336, 72, 16},
-		{'<', 384, 72, 32},
-		{'=', 432, 72, 32},
-		{'>', 0, 108, 32},
-		{'?', 48, 108, 48},
-		{'A', 144, 108, 48},
-		{'B', 192, 108, 48},
-		{'C', 240, 108, 48},
-		{'D', 288, 108, 48},
-		{'E', 336, 108, 48},
-		{'F', 384, 108, 48},
-		{'G', 432, 108, 48},
-		{'H', 0, 144, 48},
-		{'I', 48, 144, 16},
-		{'J', 96, 144, 48},
-		{'K', 144, 144, 48},
-		{'L', 192, 144, 48},
-		{'M', 240, 144, 48},
-		{'N', 288, 144, 48},
-		{'O', 336, 144, 48},
-		{'P', 384, 144, 48},
-		{'Q', 432, 144, 48},
-		{'R', 0, 180, 48},
-		{'S', 48, 180, 48},
-		{'T', 96, 180, 48},
-		{'U', 144, 180, 48},
-		{'V', 192, 180, 48},
-		{'W', 240, 180, 48},
-		{'X', 288, 180, 48},
-		{'Y', 336, 180, 48},
-		{'Z', 384, 180, 48},
-		{'#', 432, 180, 48}, // Special character for logo
-	}
-
-	for _, d := range data {
-		rect := image.Rect(d.x, d.y, d.x+d.width, d.y+fontHeight)
-		g.letterData[d.char] = Letter{
-			width: d.width,
-			image: g.fontImg.SubImage(rect).(*ebiten.Image),
-		}
+	var err error
+	g.fontAtlas, err = presets.FontAtlas("teamg1-demo", g.fontImg)
+	if err != nil {
+		panic(err)
 	}
 }
 
 func (g *Game) initScrollText(text []rune) {
 	g.scrollGlyphs = make([]scrollGlyph, 0, len(text))
 	for _, char := range text {
-		letter, ok := g.letterData[char]
+		glyphImage, letter, ok := g.fontAtlas.ExactGlyph(char)
 		if !ok {
 			width := 32 * demoFontScale
 			g.scrollGlyphs = append(g.scrollGlyphs, scrollGlyph{width: width})
@@ -423,9 +334,9 @@ func (g *Game) initScrollText(text []rune) {
 			continue
 		}
 
-		width := float64(letter.width) * demoFontScale
+		width := float64(int(letter.Advance)) * demoFontScale
 		g.scrollGlyphs = append(g.scrollGlyphs, scrollGlyph{
-			image: letter.image,
+			image: glyphImage,
 			width: width,
 		})
 		g.scrollTextWidth += width
@@ -507,34 +418,10 @@ func (p *PlasmaField) draw() {
 
 // initCube initializes the 3D textured cube
 func (g *Game) initCube() {
-	// Cube vertices
-	size := 100.0
-	g.cubeVertices = [8]Vector3{
-		{-size, -size, -size}, // 0
-		{size, -size, -size},  // 1
-		{size, size, -size},   // 2
-		{-size, size, -size},  // 3
-		{-size, -size, size},  // 4
-		{size, -size, size},   // 5
-		{size, size, size},    // 6
-		{-size, size, size},   // 7
-	}
-
-	// Cube faces with texture coordinates
-	g.cubeFaces = [6]Face{
-		{4, 5, 6, 7, [2]float32{0, 0}, [2]float32{1, 0}, [2]float32{1, 1}, [2]float32{0, 1}}, // Front
-		{1, 0, 3, 2, [2]float32{0, 0}, [2]float32{1, 0}, [2]float32{1, 1}, [2]float32{0, 1}}, // Back
-		{5, 1, 2, 6, [2]float32{0, 0}, [2]float32{1, 0}, [2]float32{1, 1}, [2]float32{0, 1}}, // Right
-		{0, 4, 7, 3, [2]float32{0, 0}, [2]float32{1, 0}, [2]float32{1, 1}, [2]float32{0, 1}}, // Left
-		{7, 6, 2, 3, [2]float32{0, 0}, [2]float32{1, 0}, [2]float32{1, 1}, [2]float32{0, 1}}, // Top
-		{0, 1, 5, 4, [2]float32{0, 0}, [2]float32{1, 0}, [2]float32{1, 1}, [2]float32{0, 1}}, // Bottom
-	}
-	g.cubeDrawIndices = [6]uint16{0, 1, 2, 0, 2, 3}
-	for i := range g.cubeDrawVertices {
-		g.cubeDrawVertices[i].ColorR = 1
-		g.cubeDrawVertices[i].ColorG = 1
-		g.cubeDrawVertices[i].ColorB = 1
-		g.cubeDrawVertices[i].ColorA = 1
+	var err error
+	g.cube, err = effects.NewTexturedCube(g.texture, presets.TeamG1TexturedCube())
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -635,8 +522,8 @@ func (g *Game) animIntro() {
 	if g.introX < 0 {
 		if g.introLetter >= 0 {
 			char := g.getIntroLetter(g.introLetter)
-			if letter, ok := g.letterData[char]; ok {
-				g.introX += int(float64(letter.width) * introFontScale)
+			if _, letter, ok := g.fontAtlas.ExactGlyph(char); ok {
+				g.introX += int(float64(int(letter.Advance)) * introFontScale)
 			}
 		}
 		g.introLetter++
@@ -660,12 +547,12 @@ func (g *Game) animIntro() {
 
 	// Draw new letter
 	char := g.getIntroLetter(g.introLetter)
-	if letter, ok := g.letterData[char]; ok {
+	if glyphImage, _, ok := g.fontAtlas.ExactGlyph(char); ok {
 		g.drawOp.GeoM.Reset()
 		g.drawOp.ColorScale.Reset() // Reset color scale
 		g.drawOp.GeoM.Scale(introFontScale, introFontScale)
 		g.drawOp.GeoM.Translate(float64(stCanvasWidth+g.introX), 0)
-		g.surfScroll1.DrawImage(letter.image, &g.drawOp)
+		g.surfScroll1.DrawImage(glyphImage, &g.drawOp)
 	}
 
 	g.shaderTime += 0.016
@@ -689,94 +576,7 @@ func (g *Game) getIntroLetter(pos int) rune {
 // drawTexturedCube draws the 3D textured cube
 func (g *Game) drawTexturedCube() {
 	g.cubeCanvas.Clear()
-
-	sinX, cosX := math.Sincos(g.cubeRotation.X)
-	sinY, cosY := math.Sincos(g.cubeRotation.Y)
-	sinZ, cosZ := math.Sincos(g.cubeRotation.Z)
-
-	// Transform vertices
-	for i, v := range g.cubeVertices {
-		x := v.X
-		y := v.Y
-		z := v.Z
-
-		y2 := y*cosX - z*sinX
-		z2 := y*sinX + z*cosX
-		y = y2
-		z = z2
-
-		x2 := x*cosY + z*sinY
-		z2 = -x*sinY + z*cosY
-		x = x2
-
-		x2 = x*cosZ - y*sinZ
-		y2 = x*sinZ + y*cosZ
-
-		g.transformedVertices[i] = Vector3{X: x2, Y: y2, Z: z2}
-	}
-
-	for i, face := range g.cubeFaces {
-		g.faceDepths[i] = faceDepth{
-			faceIndex: i,
-			depth: (g.transformedVertices[face.P1].Z + g.transformedVertices[face.P2].Z +
-				g.transformedVertices[face.P3].Z + g.transformedVertices[face.P4].Z) / 4,
-		}
-	}
-	for i := 1; i < len(g.faceDepths); i++ {
-		item := g.faceDepths[i]
-		j := i
-		for j > 0 && item.depth < g.faceDepths[j-1].depth {
-			g.faceDepths[j] = g.faceDepths[j-1]
-			j--
-		}
-		g.faceDepths[j] = item
-	}
-
-	// Draw faces
-	centerX := float32(g.cubeCanvas.Bounds().Dx() / 2)
-	centerY := float32(g.cubeCanvas.Bounds().Dy() / 2)
-	textureWidth := float32(g.texture.Bounds().Dx())
-	textureHeight := float32(g.texture.Bounds().Dy())
-	const fov = 300.0
-
-	for _, fd := range g.faceDepths {
-		face := g.cubeFaces[fd.faceIndex]
-
-		// Project vertices
-		var screenPoints [4][2]float32
-		pointIndices := [4]int{face.P1, face.P2, face.P3, face.P4}
-		for i, pointIndex := range pointIndices {
-			v := g.transformedVertices[pointIndex]
-			scale := fov / (fov + v.Z + 300)
-			screenPoints[i][0] = centerX + float32(v.X*scale)
-			screenPoints[i][1] = centerY + float32(v.Y*scale)
-		}
-
-		// Check if face is visible (backface culling)
-		v1x := screenPoints[1][0] - screenPoints[0][0]
-		v1y := screenPoints[1][1] - screenPoints[0][1]
-		v2x := screenPoints[2][0] - screenPoints[0][0]
-		v2y := screenPoints[2][1] - screenPoints[0][1]
-
-		if v1x*v2y-v1y*v2x < 0 {
-			continue
-		}
-
-		uvs := [4][2]float32{face.UV1, face.UV2, face.UV3, face.UV4}
-		for i := range g.cubeDrawVertices {
-			g.cubeDrawVertices[i].DstX = screenPoints[i][0]
-			g.cubeDrawVertices[i].DstY = screenPoints[i][1]
-			g.cubeDrawVertices[i].SrcX = uvs[i][0] * textureWidth
-			g.cubeDrawVertices[i].SrcY = uvs[i][1] * textureHeight
-		}
-
-		g.cubeCanvas.DrawTriangles(
-			g.cubeDrawVertices[:],
-			g.cubeDrawIndices[:],
-			g.texture,
-			&g.cubeTrianglesOpt,
-		)
-	}
+	g.cube.Draw(g.cubeCanvas)
 }
 
 // drawLogoSpiral draws the GAMEONE logos in a spiral pattern
@@ -922,9 +722,7 @@ func (g *Game) drawMainDemo() {
 
 func (g *Game) advanceMainDemo() {
 	g.plasmaField.advance()
-	g.cubeRotation.X += 0.02
-	g.cubeRotation.Y += 0.03
-	g.cubeRotation.Z += 0.01
+	g.cube.Rotate(.02, .03, .01)
 	g.logoTime += 0.02
 	g.logoDistort.distCount += 2
 
@@ -1033,6 +831,9 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 
 // Cleanup releases resources
 func (g *Game) Cleanup() {
+	if g.cube != nil {
+		g.cube.Close()
+	}
 	if g.audioPlayer != nil {
 		if err := g.audioPlayer.Close(); err != nil {
 			log.Printf("Failed to close audio player: %v", err)
