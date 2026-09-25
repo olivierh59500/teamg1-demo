@@ -8,3 +8,7 @@ The choreography and assets remain in this repository. Reusable rendering and
 effects come from the published `github.com/olivierh59500/democonstructionkit`
 module pinned in `go.mod`. Music is opened with `sound.Open`; DCK selects the decoder from the asset and
 provides the configured stereo PCM format. The demo keeps its playback level and loop settings.
+
+The intro/main switch, 0.03-per-tick fade and strict 0.1 music cue use DCK's
+`timeline.IntroHandoff`. The CRT pass and main effects retain their original
+update and draw order.

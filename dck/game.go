@@ -15,6 +15,7 @@ import (
 	"github.com/olivierh59500/democonstructionkit/scrolling"
 	"github.com/olivierh59500/democonstructionkit/sound"
 	"github.com/olivierh59500/democonstructionkit/sprites"
+	"github.com/olivierh59500/democonstructionkit/timeline"
 
 	_ "image/png"
 	"log"
@@ -89,15 +90,13 @@ type Game struct {
 	// Intro scrolling
 
 	// Animation state
-	fadeImg       float64
-	introComplete bool
+	handoff *timeline.IntroHandoff
 
 	// Audio
 	audioContext *audio.Context
 	audioPlayer  *audio.Player
 	musicStream  *sound.Stream
 	audioReady   bool
-	musicStarted bool
 
 	// Animated intro material.
 	crt *effects.TimedCRTOverlay
@@ -134,8 +133,11 @@ func NewGameWithPlasmaColorLookup(samples int) *Game {
 
 // NewGameWithOptions constructs the same scene with selected effect backends.
 func NewGameWithOptions(options GameOptions) *Game {
-	g := &Game{
-		fadeImg: 2.0,
+	g := &Game{}
+	var err error
+	g.handoff, err = timeline.NewIntroHandoff(presets.FadedIntroHandoff(fadeSpeed, .1))
+	if err != nil {
+		panic(err)
 	}
 
 	// Initialize scrolling texts
@@ -158,7 +160,6 @@ func NewGameWithOptions(options GameOptions) *Game {
 	g.logoCanvas = ebiten.NewImage(stCanvasWidth, stCanvasHeight)
 
 	// Initialize font data
-	var err error
 	g.fontAtlas, err = presets.FontAtlas("teamg1-demo", g.fontImg)
 	if err != nil {
 		panic(err)
@@ -291,11 +292,11 @@ func (g *Game) initAudio() {
 }
 
 func (g *Game) startMusic() {
-	if g.musicStarted || g.audioPlayer == nil {
+	if !g.handoff.CueReady() || g.audioPlayer == nil {
 		return
 	}
 	g.audioPlayer.Play()
-	g.musicStarted = true
+	g.handoff.MarkCue()
 }
 
 // drawMainDemo draws the main demo scene
@@ -360,30 +361,19 @@ func (g *Game) Update() error {
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
 	}
 
-	if !g.introComplete {
+	if !g.handoff.Main() {
 		if err := g.introScroll.Update(kit.Frame{}); err != nil {
 			return err
 		}
-		if g.introScroll.Finished() {
-			g.introComplete = true
-			g.fadeImg = 0
-		} else if g.crt != nil {
+		g.handoff.Step(g.introScroll.Finished())
+		if !g.handoff.JustEntered() && g.crt != nil {
 			if err := g.crt.Update(kit.Frame{}); err != nil {
 				return err
 			}
 		}
 	} else {
-		// Fade in main scene
-		if g.fadeImg < 1 {
-			g.fadeImg += fadeSpeed
-			if g.fadeImg > 1 {
-				g.fadeImg = 1
-			}
-		}
-
-		if g.fadeImg > 0.1 {
-			g.startMusic()
-		}
+		g.handoff.Step(false)
+		g.startMusic()
 
 		if err := g.advanceMainDemo(); err != nil {
 			return err
@@ -398,7 +388,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.Black)
 	offsetX := (screen.Bounds().Dx() - screenWidth) / 2
 
-	if !g.introComplete {
+	if !g.handoff.Main() {
 		// Draw the intro scroll with or without shader at fixed Y position
 		yPos := screenHeight/2 - int(fontHeight*introFontScale)/2
 
@@ -420,7 +410,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// the wider logical Android surface.
 	var op ebiten.DrawImageOptions
 	op.GeoM.Translate(float64(offsetX+64), 70)
-	op.ColorScale.ScaleAlpha(float32(g.fadeImg))
+	op.ColorScale.ScaleAlpha(float32(g.handoff.Fade()))
 	screen.DrawImage(g.stCanvas, &op)
 }
 
