@@ -5,6 +5,25 @@ Hommage moderne à la demoscene, écrit en Go avec Ebitengine par Bilizir de DMA
 La démo combine un shader CRT, un plasma temps réel, un cube 3D texturé, des
 logos déformés, un scroller sinusoïdal et une musique YM2149.
 
+<!-- Project showcase -->
+## Screenshots
+
+[![A rotating point cube, TeamG1 sprites, and warped scrolltext over a color-cycling background](docs/media/screenshot-1.png)](docs/media/screenshot-1.png)
+
+A rotating point cube, TeamG1 sprites, and warped scrolltext over a color-cycling background.
+
+## Video
+
+[![Animated preview of TeamG1 Demo](docs/media/preview.gif)](https://github.com/olivierh59500/teamg1-demo/raw/refs/heads/main/docs/media/preview.mp4)
+
+**[Watch or download the 24-second MP4 preview with sound](https://github.com/olivierh59500/teamg1-demo/raw/refs/heads/main/docs/media/preview.mp4)**
+
+This preview is captured from the Go production.
+
+The animated image is silent; the MP4 includes the soundtrack.
+
+<!-- End project showcase -->
+
 ## Prérequis
 
 - Go 1.25 ou plus récent ;
